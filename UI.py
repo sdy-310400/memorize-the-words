@@ -1,5 +1,6 @@
 import csv
 import datetime
+import logging
 import os
 import subprocess
 import sys
@@ -16,10 +17,16 @@ import settings
 
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QApplication, QMainWindow, QMenuBar, QMenu, QAction, QLabel, QLineEdit, QWidgetAction, \
-    QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QMessageBox
+    QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QMessageBox, QDialog, QTextEdit, QDialogButtonBox
 from PyQt5.QtCore import Qt
 
 from pronounce import MemorizeWord
+
+# 配置日志记录
+logging.basicConfig(level=logging.INFO,
+                    format='%(pastime)s - %(levelness)s - %(message)s',
+                    filename='add_word.log',  # 日志文件名为 app.log
+                    filemode='a')  # 追加模式写入日志
 
 
 # noinspection PyUnresolvedReferences
@@ -51,8 +58,8 @@ class UI:
         self.display_label = QLabel(self.win)
 
         self.selected_1_study_mode = main.StudyMode.New_Learning
-        self.selected_2_data_sources_type = main.DataSourcesType.Yesterday
-        self.selected_3_word_mode = main.Word_Mode.C_to_E
+        self.selected_2_data_sources_type = main.DataSourcesType.Today
+        self.selected_3_word_mode = main.WordMode.C_to_E
         self.temp_file_path = os.path.join(path.main, "temp_file.csv")  # 用于保存临时文件路径
 
         self.init_main_window()
@@ -61,7 +68,7 @@ class UI:
 
         self.win.show()
         self.win.closeEvent = self.close_event_handler
-        self.data = take_data.WordList()
+        self.word_manager = take_data.WordListManager()
         self.init_today_data()
         sys.exit(self.app.exec_())
 
@@ -69,7 +76,7 @@ class UI:
         def down_loading(_data, _file_path=None):
             word_list = []
             for data_i in _data:
-                word_list.append(self.data.get_data(data_i).word)
+                word_list.append(self.word_manager.get_data_by_index(data_i).word)
             self.memorize_word.download(word_list, file_path=_file_path)
 
         down_thread = threading.Thread(target=down_loading, args=(data, file_path,))
@@ -105,18 +112,19 @@ class UI:
         self.memorize_word.clear(path.today_mp3)
         self.memorize_word.clear(path.today_mp3)
 
-        # 更新记录文件中的日期
-        with open(path.last_run_date, 'w') as f:
-            f.write(str(today))
-
-        today_data = self.recorder.get(record.RecordType.TodayData, today)
+        today_data = main.Main(main.StudyMode.New_Learning, 15, main.DataSourcesType.NotLearnedYet,
+                               study_mode=record.RecordType.TodayData).data
         yesterday_data = self.recorder.get(record.RecordType.LearnedAlready, today - datetime.timedelta(days=1))
         down_load_thread_1_today = threading.Thread(target=self.down_load_mp3, args=(today_data, path.today_mp3,))
         down_load_thread_1_today.start()
         down_load_thread_2_yesterday = threading.Thread(target=self.down_load_mp3,
                                                         args=(yesterday_data, path.yesterday_mp3,))
         down_load_thread_2_yesterday.start()
-        self.recorder.write(record.RecordType.TodayData, str(datetime.date.today()), today_data)
+        self.recorder.write(record.RecordType.TodayData, datetime.date.today(), today_data)
+
+        # 更新记录文件中的日期
+        with open(path.last_run_date, 'w') as f:
+            f.write(str(today))
 
     def init_main_window(self):
         """
@@ -156,10 +164,14 @@ class UI:
                 match index:
                     case 1:
                         self.selected_1_study_mode = text
+                        print(text)
                     case 2:
                         self.selected_2_data_sources_type = text
+                        print(text)
                     case 3:
                         self.selected_3_word_mode = text
+                        print(text)
+
 
             def handle_mode_selection(category, _action):
                 """
@@ -305,12 +317,15 @@ class UI:
             action_record_2.triggered.connect(lambda: self.handle_menu_action_click(record.RecordType.FullyMastered))
             action_record_3 = QAction("记录本", self.win)
             action_record_3.triggered.connect(lambda: self.handle_menu_action_click(record.RecordType.Logbook))
+            action_record_4 = QAction("添加今日单词", self.win)
+            action_record_4.triggered.connect(lambda: self.handle_daily_task_menu_click(action_record_4.text()))
             record_menu.addAction(action_record_1)
             record_menu.addAction(action_record_2)
             record_menu.addAction(action_record_3)
+            record_menu.addAction(action_record_4)
             menubar.addMenu(record_menu)
 
-        def init_daily_tasks():
+        def init_daily_tasks_menu():
             daily_tasks_menu = QMenu("任务", menubar)
             tasks_1 = QAction("每日任务", self.win)
             tasks_1.triggered.connect(lambda: self.handle_daily_task_menu_click(tasks_1.text()))
@@ -324,7 +339,7 @@ class UI:
         init_mode_menu()
         init_settings_menu()
         init_record_menu()
-        init_daily_tasks()
+        init_daily_tasks_menu()
 
         self.win.setMenuBar(menubar)
 
@@ -497,7 +512,7 @@ class UI:
                     # 使用 get_data 函数获取列表元素的具体内容
                     content_list = []
                     for num in value:
-                        result = self.data.get_data(num)
+                        result = self.word_manager.get_data_by_index(num)
                         content_list.append(f"{result.word}-{result.meaning}")
                     # 补齐值列表的长度，使其达到最大长度
                     row = [key] + content_list + ['' for _ in range(max_value_length - len(content_list))]
@@ -524,17 +539,55 @@ class UI:
             case "每日任务":
                 self.daily_tasks = main.DailyTasks.study
                 self.daily_tasks_length = 15
+                self.using_word_length = 15
                 self.run()
                 print("任务一结束")
             case "加练5个":
                 self.daily_tasks = main.DailyTasks.study
+                self.using_word_length = 5
                 self.daily_tasks_length = 5
                 self.run()
+            case "添加今日单词":
+                # 创建一个对话框
+                dialog = QDialog(self.win)
+                dialog.setWindowTitle("添加今日单词")
+                dialog.resize(500, 500)
+
+                # 创建一个多行文本输入框，至少15行
+                text_edit = QTextEdit(dialog)
+
+                # 创建按钮盒，包含确认和取消按钮
+                button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+                button_box.accepted.connect(dialog.accept)
+                button_box.rejected.connect(dialog.reject)
+
+                # 布局
+                layout = QVBoxLayout()
+                layout.addWidget(text_edit)
+                layout.addWidget(button_box, alignment=Qt.AlignCenter)
+                dialog.setLayout(layout)
+
+                # 禁用回车键触发按钮点击
+                text_edit.setLineWrapMode(QTextEdit.WidgetWidth)
+                text_edit.installEventFilter(self.win)
+
+                # 显示对话框并获取结果
+                if dialog.exec_() == QDialog.Accepted:
+                    words = text_edit.toPlainText()
+                    # 这里可以添加处理输入的单词的代码，例如保存到文件等
+                    print("输入的单词：", words)
+                    temp_word_list = words.split("\n")
+                    for word in temp_word_list:
+                        index = self.word_manager.get_data_by_word(word)
+                        if index is not None:
+                            self.recorder.add(record.RecordType.LearnedAlready, datetime.date.today(), index)
+                        else:
+                            logging.info("单词%s不在单词表" % word)  # 记录开始初始化今日数据的日志
+                            print("单词%s不在单词表" % word)
 
     def close_event_handler(self, event):
         """
         处理窗口关闭事件，在关闭窗口时删除临时文件
-
         """
         print(event)
         self._settings.set("pronounce", self.action_pronunciation.isChecked())
@@ -563,12 +616,12 @@ class UI:
             :param label: 要设置文本的标签
             :return: 要显示的文本
             """
-            data = self.data.get_data(self.running.data[index])
+            data = self.word_manager.get_data_by_index(self.running.data[index])
             self.now_word = data.word
             # 先根据混合模式确定基础的文本选择
-            if self.selected_3_word_mode == main.Word_Mode.Mixed_Mode:
+            if self.selected_3_word_mode == main.WordMode.Mixed_Mode:
                 primary_text = data.word if self.running.random_table_01[index] == 0 else data.meaning
-            elif self.selected_3_word_mode == main.Word_Mode.C_to_E:
+            elif self.selected_3_word_mode == main.WordMode.C_to_E:
                 primary_text = data.meaning
             else:  # main.Word_Mode.E_to_C
                 primary_text = data.word
@@ -604,17 +657,17 @@ class UI:
 
         update_labels()
 
-        self.display_label.setText("%d/%d %s 数据:%s 模式:%s" % (self.word_index + 1, self.using_word_length,
-                                                                 self.selected_1_study_mode,
-                                                                 self.selected_2_data_sources_type,
-                                                                 self.selected_3_word_mode))
+        self.display_label.setText("%d/%d %s 数据:%s 模式:%s"
+                                   % (self.word_index + 1, self.using_word_length, self.selected_1_study_mode,
+                                      self.selected_2_data_sources_type,
+                                      self.selected_3_word_mode))
 
     def reset_data(self):
         self.label_1.setText("--------")
         self.label_2.setText("--------")
-        self.display_label.setText("0/0 %s 数据：%s 模式：%s" % (self.selected_1_study_mode,
-                                                               self.selected_2_data_sources_type,
-                                                               self.selected_3_word_mode))
+        self.display_label.setText("0/0 %s 数据：%s 模式：%s"
+                                   % (self.selected_1_study_mode, self.selected_2_data_sources_type,
+                                      self.selected_3_word_mode))
         self.running = None
         self.word_index = 0
         keyboard.remove_all_hotkeys()
@@ -625,7 +678,8 @@ class UI:
             self.turn_action(True, True)
 
     def init_run(self, goon=None):
-        self.using_word_length = int(self.input_edit.text())
+        if self.daily_tasks is None:
+            self.using_word_length = int(self.input_edit.text())
         if self.top_right_button.text() == "重置":
             self.reset_data()
             return False
@@ -644,7 +698,10 @@ class UI:
         self.selected_1_study_mode = selected_1_study_mode
         self.selected_2_data_sources_type = selected_2_data_sources_type
         self.selected_3_word_mode = selected_3_word_mode
-        self.running = main.Main(self.selected_3_word_mode, length, self.selected_2_data_sources_type, sp)
+        print(self.selected_1_study_mode, self.selected_2_data_sources_type, selected_3_word_mode)
+        self.running = main.Main(self.selected_3_word_mode, length, self.selected_2_data_sources_type,
+                                 self.selected_1_study_mode, sp)
+        self.using_word_length = len(self.running.data)
         if self.daily_tasks != main.DailyTasks.study:
             if self.daily_tasks != main.DailyTasks.review:
                 self.down_load_mp3(self.running.data)
@@ -655,13 +712,13 @@ class UI:
             return
 
         if self.daily_tasks == main.DailyTasks.study:
-            self.init_run_data(main.StudyMode.New_Learning, main.DataSourcesType.NotLearnedYet, main.Word_Mode.E_to_C,
+            self.init_run_data(main.StudyMode.New_Learning, main.DataSourcesType.NotLearnedYet, main.WordMode.E_to_C,
                                self.daily_tasks_length, sp=main.DailyTasks.study)
         elif self.daily_tasks == main.DailyTasks.review:
-            self.init_run_data(main.StudyMode.New_Learning, main.DataSourcesType.Yesterday, main.Word_Mode.Mixed_Mode,
+            self.init_run_data(main.StudyMode.New_Learning, main.DataSourcesType.Yesterday, main.WordMode.Mixed_Mode,
                                self.daily_tasks_length, sp=main.DailyTasks.review)
         elif self.selected_1_study_mode == main.StudyMode.New_Learning:
-            self.init_run_data(main.StudyMode.New_Learning, main.DataSourcesType.NotLearnedYet, main.Word_Mode.E_to_C,
+            self.init_run_data(main.StudyMode.New_Learning, main.DataSourcesType.NotLearnedYet, main.WordMode.E_to_C,
                                int(self.input_edit.text()))
         else:
             try:
@@ -678,17 +735,18 @@ class UI:
         print(f"点击了按钮: {text}")
         match text:
             case "提示":
-                print("执行")
-                self.memorize_word.sing(self.now_word)
+                if self.running is not None:
+                    print("执行")
+                    self.memorize_word.sing(self.now_word)
             case "保存":
                 if self.running is not None:
-                    self.recorder.add(record.RecordType.Logbook, str(datetime.date.today()),
-                                      self.running.data[self.word_index])
+                    self.recorder.add(record.RecordType.Logbook, datetime.date.today(),
+                                      self.running.word_manager[self.word_index])
             case "斩杀":
                 if self.running is not None:
-                    self.recorder.add(record.RecordType.FullyMastered, str(datetime.date.today()),
-                                      self.running.data[self.word_index])
-                    self.running.data.pop(self.word_index)
+                    self.recorder.add(record.RecordType.FullyMastered, datetime.date.today(),
+                                      self.running.word_manager[self.word_index])
+                    self.running.word_manager.pop(self.word_index)
                     self.running.random_table_01.pop(self.word_index)
                     if self.word_index == int(self.input_edit.text()) - 1:
                         self.word_index -= 1

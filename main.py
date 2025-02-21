@@ -17,6 +17,7 @@ class DailyTasks:
     study = "study"
     review = "review"
 
+
 class StudyMode:
     New_Learning = "新学习"
     Review = "复习"
@@ -27,18 +28,19 @@ study_mode_list = [StudyMode.New_Learning, StudyMode.Review, StudyMode.Review_Fu
 
 
 # 定义了三种模式，分别是中文到英文（C_to_E）、英文到中文（E_to_C）和混合模式（Mixed_Mode）
-class Word_Mode:
+class WordMode:
     C_to_E = "c_to_e"
     E_to_C = "e_to_c"
     Mixed_Mode = "混合"
 
 
-word_mode_list = [Word_Mode.C_to_E, Word_Mode.E_to_C, Word_Mode.Mixed_Mode]
+word_mode_list = [WordMode.C_to_E, WordMode.E_to_C, WordMode.Mixed_Mode]
 
 
 # 定义了多种数据来源类型，包括昨天（Yesterday）、前天（TheDayBeforeYesterday）等不同时间范围，以及已学习（Learned）、
 # 未学习（NotLearnedYet）、完全掌握（FullyMastered）等状态
 class DataSourcesType:
+    Today = "今天"
     Yesterday = "昨天"
     TheDayBeforeYesterday = "前天"
     ThirdDays = "三天前"
@@ -48,13 +50,13 @@ class DataSourcesType:
     FullyMastered = "完全掌握"
 
 
-data_sources_type_list = [DataSourcesType.Yesterday, DataSourcesType.TheDayBeforeYesterday, DataSourcesType.ThirdDays,
-                          DataSourcesType.SevenDays,
-                          DataSourcesType.Learned]
+data_sources_type_list = [DataSourcesType.Today, DataSourcesType.Yesterday, DataSourcesType.TheDayBeforeYesterday,
+                          DataSourcesType.ThirdDays, DataSourcesType.SevenDays, DataSourcesType.Learned]
 
 
 class Main:
-    def __init__(self, word_mode, number, data_sources_type, special_mode=None):
+    def __init__(self, word_mode: WordMode, number: int, data_sources_type: DataSourcesType, study_mode:StudyMode,
+                 special_mode: DailyTasks = None):
         """
         初始化函数，用于设置学习的模式、要获取的数据数量和数据来源类型，
         同时初始化数据来源列表、记录类实例、获取当前日期和单词数据类实例，
@@ -66,6 +68,7 @@ class Main:
         """
         # 初始化模式、要获取的数据数量和数据来源类型
         self.special_mode = special_mode
+        self.study_mode = study_mode
         self.index = 0
         self.word_mode = word_mode
         self.number = number
@@ -77,6 +80,9 @@ class Main:
         # 获取当前日期
         self.today = datetime.date.today()
 
+        if self.special_mode is not None and self.number == 5:
+            self.data_sources_type = DataSourcesType.NotLearnedYet
+
         # 调用方法获取数据来源
         self.take_data_sources()
 
@@ -86,11 +92,11 @@ class Main:
             self.data = self.data_sources
 
         match word_mode:
-            case Word_Mode.C_to_E:
+            case WordMode.C_to_E:
                 self.random_table_01 = [1] * self.number
-            case Word_Mode.E_to_C:
+            case WordMode.E_to_C:
                 self.random_table_01 = [0] * self.number
-            case Word_Mode.Mixed_Mode:
+            case WordMode.Mixed_Mode:
                 self.random_table_01 = [random.randint(0, 1) for _ in range(self.number)]
         if len(self.data) == 0:
             raise EOFError("没有数据！")
@@ -103,20 +109,23 @@ class Main:
         :return: 无返回值，数据存储在 self.data_sources 中
         """
         # 根据数据来源类型进行不同的操作
-        if self.special_mode == DailyTasks.study:
-            self.data_sources = self.record.get(record.RecordType.TodayData, self.today)
-            return
-        elif self.special_mode == DailyTasks.review:
-            temp_list = []
-            day_number = 1
-            while len(temp_list) < self.number:
-                temp_list.extend(self.record.get(record.RecordType.LearnedAlready,
-                                                 self.today - datetime.timedelta(days=day_number)))
-                day_number += 1
-            self.data_sources = temp_list[:self.number]
-            return
+        if self.number != 5 and self.special_mode is not None:
+            if self.special_mode == DailyTasks.study:
+                self.data_sources = self.record.get(record.RecordType.TodayData, self.today)
+                return
+            elif self.special_mode == DailyTasks.review:
+                temp_list = []
+                day_number = 1
+                while len(temp_list) < self.number:
+                    temp_list.extend(self.record.get(record.RecordType.LearnedAlready,
+                                                     self.today - datetime.timedelta(days=day_number)))
+                    day_number += 1
+                self.data_sources = temp_list[:self.number]
+                return
 
         match self.data_sources_type:
+            case DataSourcesType.Today:
+                self.data_sources = self.reduce_days(0)
             # 如果是昨天的数据来源类型，调用 reduce_days 方法获取昨天的数据
             case DataSourcesType.Yesterday:
                 self.data_sources = self.reduce_days(1)
@@ -150,7 +159,7 @@ class Main:
                 for item_list in self.record.fully_mastered.values():
                     self.data_sources.extend(item_list)
 
-    def reduce_days(self, days):
+    def reduce_days(self, days: int):
         """
         根据指定的天数范围，从记录中获取相应天数内的已学习数据。
 
@@ -158,14 +167,23 @@ class Main:
         :return: 返回获取到的已学习数据列表
         """
         _return = []
-        # 循环获取指定天数范围内的已学习数据
-        for day in range(1, days + 1):
-            _return.extend(self.record.get(record.RecordType.LearnedAlready,
-                                           self.today - datetime.timedelta(days=day)))
+
+        if self.study_mode == StudyMode.Review:
+            record_type = record.RecordType.LearnedAlready
+        elif self.study_mode == StudyMode.Review_Fully_Grasp:
+            record_type = record.RecordType.FullyMastered
+
+        if days != 0:
+            # 循环获取指定天数范围内的已学习数据
+            for day in range(1, days + 1):
+                _return.extend(self.record.get(record_type,
+                                               self.today - datetime.timedelta(days=day)))
+        else:
+            _return.extend(self.record.get(record_type, self.today))
         return _return
 
     @staticmethod
-    def random_select_and_permute(input_list, num_to_select=None):
+    def random_select_and_permute(input_list: list[int], num_to_select: int = None):
         """
         从给定的数字列表中选择任意个数（可指定数量，默认全选）的元素，随机排列后组成新列表。
 
@@ -185,6 +203,4 @@ class Main:
 
 
 if __name__ == '__main__':
-    mode = Word_Mode.Mixed_Mode
-    data_sources = DataSourcesType.NotLearnedYet
-    main = Main(mode, 9, data_sources)
+    pass
