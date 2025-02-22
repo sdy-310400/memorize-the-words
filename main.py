@@ -17,6 +17,11 @@ class DailyTasks:
     study = "study"
     review = "review"
 
+    class DailyTasksData:
+        def __init__(self, daily_name, length):
+            self.daily_name = daily_name
+            self.length = length
+
 
 class StudyMode:
     New_Learning = "新学习"
@@ -55,8 +60,8 @@ data_sources_type_list = [DataSourcesType.Today, DataSourcesType.Yesterday, Data
 
 
 class Main:
-    def __init__(self, word_mode: WordMode, number: int, data_sources_type: DataSourcesType, study_mode:StudyMode,
-                 special_mode: DailyTasks = None):
+    def __init__(self, word_mode: WordMode, number: int, data_sources_type: DataSourcesType, study_mode: StudyMode,
+                 special_mode = DailyTasks.DailyTasksData(None, None)):
         """
         初始化函数，用于设置学习的模式、要获取的数据数量和数据来源类型，
         同时初始化数据来源列表、记录类实例、获取当前日期和单词数据类实例，
@@ -80,25 +85,27 @@ class Main:
         # 获取当前日期
         self.today = datetime.date.today()
 
-        if self.special_mode is not None and self.number == 5:
-            self.data_sources_type = DataSourcesType.NotLearnedYet
+        """if self.special_mode is not None and self.number == 5:
+            self.data_sources_type = DataSourcesType.NotLearnedYet"""
 
         # 调用方法获取数据来源
         self.take_data_sources()
 
-        if self.special_mode is None:
+        if self.special_mode.daily_name is None:
             self.data = self.random_select_and_permute(self.data_sources, num_to_select=self.number)
         else:
             self.data = self.data_sources
+            self.number = self.special_mode.length
 
         match word_mode:
             case WordMode.C_to_E:
-                self.random_table_01 = [1] * self.number
+                self.random_table_0_and_1 = [1] * self.number
             case WordMode.E_to_C:
-                self.random_table_01 = [0] * self.number
+                self.random_table_0_and_1 = [0] * self.number
             case WordMode.Mixed_Mode:
-                self.random_table_01 = [random.randint(0, 1) for _ in range(self.number)]
+                self.random_table_0_and_1 = [random.randint(0, 1) for _ in range(self.number)]
         if len(self.data) == 0:
+            print(word_mode, number, data_sources_type, study_mode)
             raise EOFError("没有数据！")
 
     def take_data_sources(self):
@@ -109,7 +116,24 @@ class Main:
         :return: 无返回值，数据存储在 self.data_sources 中
         """
         # 根据数据来源类型进行不同的操作
-        if self.number != 5 and self.special_mode is not None:
+
+        if self.special_mode.daily_name == DailyTasks.study:
+            if self.special_mode.length == 15:
+                self.data_sources = self.record.get(record.RecordType.TodayData, self.today)
+                return
+            else:
+                self.data_sources_type = DataSourcesType.NotLearnedYet
+        elif self.special_mode.daily_name == StudyMode.Review:
+            temp_list = []
+            day_number = 1
+            while len(temp_list) < self.number:
+                temp_list.extend(self.record.get(record.RecordType.LearnedAlready,
+                                                 self.today - datetime.timedelta(days=day_number)))
+                day_number += 1
+            self.data_sources = temp_list[:self.number]
+            return
+
+        """ if self.number != 5 and self.special_mode is not None:
             if self.special_mode == DailyTasks.study:
                 self.data_sources = self.record.get(record.RecordType.TodayData, self.today)
                 return
@@ -122,6 +146,7 @@ class Main:
                     day_number += 1
                 self.data_sources = temp_list[:self.number]
                 return
+        """
 
         match self.data_sources_type:
             case DataSourcesType.Today:
@@ -172,6 +197,8 @@ class Main:
             record_type = record.RecordType.LearnedAlready
         elif self.study_mode == StudyMode.Review_Fully_Grasp:
             record_type = record.RecordType.FullyMastered
+        else:
+            record_type = None
 
         if days != 0:
             # 循环获取指定天数范围内的已学习数据

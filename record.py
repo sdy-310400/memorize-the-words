@@ -1,6 +1,15 @@
 import datetime
+
 import path
 import json
+
+
+# RecordType类定义了一些数据类型的常量，方便在代码中统一使用
+class RecordType:
+    Logbook = "Logbook"
+    LearnedAlready = "LearnedAlready"
+    FullyMastered = "FullyMastered"
+    TodayData = "TodayData"
 
 
 # RecordJson类用于处理与JSON文件的读写操作
@@ -31,7 +40,7 @@ class RecordJson:
     def read_data_by_type(self, data_type):
         """
         根据指定类型读取对应的数据（字典形式）
-        :param data_type: 要读取数据的类型标识字符串，如 "type1"
+        :param data_type: 要读取数据的类型标识字符串，合法取值为 "Logbook", "LearnedAlready", "FullyMastered", "TodayData"
         先调用_read_file_data读取整个文件数据，如果文件数据存在，则从其中获取指定类型的数据并返回，
         如果不存在该类型数据则返回None
         :return: 返回指定类型对应的字典数据，如果不存在该类型数据则返回None
@@ -41,7 +50,7 @@ class RecordJson:
             return file_data.get(data_type)
         return None
 
-    def write_data(self, data_type, data_dict):
+    def write_data(self, data_type, data_dict: dict):
         """
         将指定类型的数据（字典形式）写入到JSON文件中
         :param data_type: 要写入数据的类型标识字符串，如 "type1"
@@ -61,14 +70,6 @@ class RecordJson:
             raise EOFError(f"文件 {self.file_path} 不存在，无法写入数据")
         except TypeError:
             raise EOFError(f"传入的数据 {data_dict} 无法进行JSON序列化，不能写入文件")
-
-
-# RecordType类定义了一些数据类型的常量，方便在代码中统一使用
-class RecordType:
-    Logbook = "Logbook"
-    LearnedAlready = "LearnedAlready"
-    FullyMastered = "FullyMastered"
-    TodayData = "TodayData"
 
 
 # Record类作为主要的记录类，封装了对RecordJson类的操作
@@ -99,32 +100,40 @@ class Record:
         except KeyError:
             return []
 
-    def write(self, _type, _date, data_list):
+    def write(self, _type, _date: datetime.date, data_list: [int]):
         # 读取指定类型的现有数据
         wired = self.record_manager.read_data_by_type(_type)
         # 创建包含指定日期和数据列表的字典项
-        item = {_date: data_list}
+        item = {str(_date): data_list}
         # 将新的字典项更新到现有数据中
         wired.update(item)
         # 将更新后的数据写入文件
         self.record_manager.write_data(_type, wired)
 
-    def add(self, _type, _date, word_index):
+    def add(self, _type: RecordType, _date: datetime.date, word_index: int):
         assert isinstance(word_index, int)
         wired = self.record_manager.read_data_by_type(_type)
-        if _date in wired.keys():
-            wired[_date].append(word_index)
+        _date_str = str(_date)
+        if _date_str in wired.keys():
+            wired[_date_str].append(word_index)
         else:
-            wired.update({_date: [word_index]})
+            wired.update({_date_str: [word_index]})
         self.record_manager.write_data(_type, wired)
+
+    def clear_cache(self):
+        """清除TodayData类型中非今日的数据"""
+        today = datetime.date.today()
+        today_str = str(today)
+        # 读取TodayData数据，若不存在则初始化为空字典
+        today_data = self.record_manager.read_data_by_type(RecordType.TodayData) or {}
+        # 仅保留今日的数据
+        filtered_data = {k: v for k, v in today_data.items() if k == today_str}
+        # 将过滤后的数据写回文件
+        self.record_manager.write_data(RecordType.TodayData, filtered_data)
+
 
 
 if __name__ == '__main__':
-    # 创建一个示例数据列表
-    text_list = [0, 2, 40, 145]
-    # 创建Record类的实例
-    record = Record()
-    # 获取当前日期并转换为字符串格式
-    date = str(datetime.date.today())
-    # 将示例数据写入到Logbook类型下的当前日期中
-    record.write(RecordType.TodayData, date, text_list)
+    test = Record()
+    test.clear_cache()
+

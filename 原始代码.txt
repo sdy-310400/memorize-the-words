@@ -1,0 +1,365 @@
+    def init_today_data(self):
+        """
+        初始化今日学习数据
+
+        检查上次运行日期，若为首次今日运行则：
+        1. 清理临时文件
+        2. 获取今日新词和昨日复习词
+        3. 启动MP3下载线程
+        4. 更新最后运行日期记录
+        """
+        # 获取当前日期
+        today = datetime.date.today()
+
+        # 检查记录文件是否存在
+        if os.path.exists(path.last_run_date):
+            # 读取文件中的日期
+            with open(path.last_run_date, 'r') as f:
+                last_run_date_str = f.read().strip()
+                try:
+                    # 将字符串转换为日期对象
+                    last_run_date = datetime.datetime.strptime(last_run_date_str, '%Y-%m-%d').date()
+                    # 如果上次运行日期是今天，不执行主要逻辑
+                    if last_run_date == today:
+                        print("今天已经运行过，不再执行。")
+                        return
+                except ValueError:
+                    # 处理日期格式错误的情况
+                    pass
+        else:
+            with open(path.last_run_date, 'r'):
+                pass
+
+        # 执行主要逻辑
+        print("正在执行主要逻辑...")
+        # 这里可以放你需要每天只运行一次的代码
+        self.memorize_word.clear(path.today_mp3)
+
+        today_data = main.Main(main.StudyMode.New_Learning, 15, main.DataSourcesType.NotLearnedYet,
+                               study_mode=record.RecordType.TodayData).data
+        yesterday_data = self.recorder.get(record.RecordType.LearnedAlready, today - datetime.timedelta(days=1))
+        down_load_thread_1_today = threading.Thread(target=self.down_load_mp3, args=(today_data, path.today_mp3,))
+        down_load_thread_1_today.start()
+        down_load_thread_2_yesterday = threading.Thread(target=self.down_load_mp3,
+                                                        args=(yesterday_data, path.yesterday_mp3,))
+        down_load_thread_2_yesterday.start()
+        self.recorder.write(record.RecordType.TodayData, datetime.date.today(), today_data)
+
+        # 更新记录文件中的日期
+        with open(path.last_run_date, 'w') as f:
+            f.write(str(today))
+
+    def init_main_window(self):
+        """
+        配置主窗口基本属性
+
+        设置窗口尺寸为1000x600并固定大小，
+        将窗口移动到屏幕中心位置
+        """
+        self.win.setGeometry(0, 0, 1000, 600)
+        self.win.setFixedSize(1000, 600)
+        x = (2560 - self.win.width()) // 2
+        y = (1440 - self.win.height()) // 2
+        self.win.move(x, y)
+
+    def init_menu(self):
+        """
+        初始化菜单系统
+
+        创建包含以下菜单的菜单栏：
+        - 模式菜单（学习模式、数据源、单词模式）
+        - 设置菜单（发音开关）
+        - 记录菜单（学习记录查看）
+        - 任务菜单（每日任务操作）
+        """
+        menubar = QMenuBar(self.win)
+
+        def init_mode_menu():
+            """
+            初始化模式菜单。
+
+            包含模式菜单的各种选项设置、操作和事件处理。
+            """
+
+            def set_selected_mode_text(index, text):
+                """
+                根据类别索引和文本更新选中的模式。
+
+                参数:
+                index (int): 类别索引
+                text (str): 要设置的模式文本
+                """
+                match index:
+                    case 1:
+                        self.selected_1_study_mode = text
+                        print(text)
+                    case 2:
+                        self.selected_2_data_sources_type = text
+                        print(text)
+                    case 3:
+                        self.selected_3_word_mode = text
+                        print(text)
+
+
+            def handle_mode_selection(category, _action):
+                """
+                处理模式选择操作。
+
+                当选择一个模式时，更新其他动作的选中状态，更新显示文本等。
+
+                参数:
+                category (int): 类别索引
+                action (QAction): 被选中的动作
+                """
+
+                def close_other_action(index):
+                    """
+                    关闭同一类别中除当前动作外的其他动作的选中状态。
+
+                    参数:
+                    index (int): 类别索引
+                    """
+                    for other_action in self.get_actions_by_category(index):
+                        if other_action.text() != _action.text():
+                            other_action.setChecked(False)
+                    set_selected_mode_text(index, _action.text())
+
+                if category == 1:
+                    if _action.text() == main.StudyMode.New_Learning:
+                        self.turn_action(False)
+                    else:
+                        self.turn_action(True)
+
+                if _action.text() in [self.selected_1_study_mode, self.selected_2_data_sources_type,
+                                      self.selected_3_word_mode]:
+                    _action.setChecked(True)
+                else:
+                    close_other_action(category)
+
+                self.display_text = (f"0/0 {self.selected_1_study_mode} "
+                                     f"数据：{self.selected_2_data_sources_type} 模式：{self.selected_3_word_mode}")
+                self.display_label.setText(self.display_text)
+
+            def handle_input_change():
+                """
+                处理输入框文本变化事件。
+
+                检查输入是否为有效数字，并输出相应信息。
+                """
+                text = self.input_edit.text()
+                try:
+                    num = float(text)
+                    if num > 0:
+                        print(f"输入的有效数字为: {num}")
+                    else:
+                        print("输入的数字应大于0，请重新输入")
+                except ValueError:
+                    print("请输入有效的数字")
+
+            def init_mode_action(mode_options, index):
+                """
+                初始化模式动作。
+
+                为每个模式选项创建可勾选的动作，并添加到菜单中，将第一个选项默认勾选，连接触发事件。
+
+                参数:
+                mode_options (list[str]): 模式选项列表
+                index (int): 类别索引
+
+                返回:
+                list[QAction]: 创建的动作列表
+                """
+                actions = []
+                for i, option in enumerate(mode_options):
+                    _action = QAction(option, self.win)
+                    _action.setCheckable(True)
+                    if i == 0:  # 新增：将第一个选项默认勾选
+                        _action.setChecked(True)
+                    # noinspection PyUnresolvedReferences
+                    _action.triggered.connect(functools.partial(handle_mode_selection, index, _action))
+                    mode_menu.addAction(_action)
+                    actions.append(_action)
+                return actions
+
+            mode_menu = QMenu("模式", menubar)
+            mode_options_1 = main.study_mode_list
+            init_mode_action(mode_options_1, 1)
+
+            mode_menu.addSeparator()
+            mode_options_2 = main.data_sources_type_list
+            actions_2 = init_mode_action(mode_options_2, 2)
+            # 将第 2 类选项初始设为不可用
+            for action in actions_2:
+                action.setEnabled(False)
+
+            mode_menu.addSeparator()
+            mode_options_3 = main.word_mode_list
+            actions_3 = init_mode_action(mode_options_3, 3)
+            for action in actions_3:
+                action.setEnabled(False)
+
+            self.input_edit = QLineEdit()
+            self.input_edit.setText("15")
+            self.input_edit.setPlaceholderText("")
+            self.input_edit.textChanged.connect(handle_input_change)
+
+            widget = QWidget(None)
+            layout = QHBoxLayout(widget)
+
+            label = QLabel("数量:")
+            layout.addWidget(label)
+            layout.addWidget(self.input_edit)
+            self.input_edit.setFixedWidth(65)
+
+            widget_action = QWidgetAction(mode_menu)
+            widget_action.setDefaultWidget(widget)
+            mode_menu.addAction(widget_action)
+
+            menubar.addMenu(mode_menu)
+
+        def init_settings_menu():
+            """
+            初始化设置菜单。
+
+            创建发音设置动作，并将其添加到设置菜单中，连接触发事件。
+            """
+            settings_menu = QMenu("设置", menubar)
+            # 创建一个可勾选的 QAction 实例
+            self.action_pronunciation = QAction("发音", self.win)
+            self.action_pronunciation.setCheckable(True)
+            self.action_pronunciation.setChecked(self._settings.pronounce)
+            settings_menu.addAction(self.action_pronunciation)
+            menubar.addMenu(settings_menu)
+
+        # noinspection PyUnresolvedReferences
+        def init_record_menu():
+            """
+            初始化记录菜单。
+
+            创建记录相关的动作，并添加到记录菜单中。
+            """
+            record_menu = QMenu("记录", menubar)
+            action_record_1 = QAction("已学单词", self.win)
+            action_record_1.triggered.connect(lambda: self.handle_menu_action_click(record.RecordType.LearnedAlready))
+            action_record_2 = QAction("掌握单词", self.win)
+            action_record_2.triggered.connect(lambda: self.handle_menu_action_click(record.RecordType.FullyMastered))
+            action_record_3 = QAction("记录本", self.win)
+            action_record_3.triggered.connect(lambda: self.handle_menu_action_click(record.RecordType.Logbook))
+            action_record_4 = QAction("添加今日单词", self.win)
+            action_record_4.triggered.connect(lambda: self.handle_daily_task_menu_click(action_record_4.text()))
+            record_menu.addAction(action_record_1)
+            record_menu.addAction(action_record_2)
+            record_menu.addAction(action_record_3)
+            record_menu.addAction(action_record_4)
+            menubar.addMenu(record_menu)
+
+        def init_daily_tasks_menu():
+            daily_tasks_menu = QMenu("任务", menubar)
+            tasks_1 = QAction("每日任务", self.win)
+            tasks_1.triggered.connect(lambda: self.handle_daily_task_menu_click(tasks_1.text()))
+            tasks_2 = QAction("加练5个", self.win)
+            tasks_2.triggered.connect(lambda: self.handle_daily_task_menu_click(tasks_2.text()))
+            daily_tasks_menu.addAction(tasks_1)
+            daily_tasks_menu.addAction(tasks_2)
+
+            menubar.addMenu(daily_tasks_menu)
+
+        init_mode_menu()
+        init_settings_menu()
+        init_record_menu()
+        init_daily_tasks_menu()
+
+        self.win.setMenuBar(menubar)
+
+    def init_layout(self):
+        """
+        构建主界面布局
+
+        创建包含以下部分的布局：
+        - 顶部布局（状态显示和控制按钮）
+        - 中央布局（单词显示区域）
+        - 底部布局（功能操作按钮）
+        """
+        main_layout = QVBoxLayout()
+
+        def init_top_layout():
+            """
+            初始化顶部布局。
+
+            创建并添加顶部的显示标签和按钮。
+            """
+            top_layout = QHBoxLayout()
+            self.display_label.setText("0/0 %s 数据：%s 模式：%s" % (
+                self.selected_1_study_mode, self.selected_2_data_sources_type, self.selected_3_word_mode))
+            top_layout.addWidget(self.display_label, 0, Qt.AlignTop | Qt.AlignLeft)
+
+            self.top_right_button = QPushButton("开始", self.win)
+            self.top_right_button.setFixedWidth(60)
+            self.top_right_button.clicked.connect(lambda: self.run())
+            top_layout.addWidget(self.top_right_button, 1, Qt.AlignTop | Qt.AlignRight)
+            top_right_button1 = QPushButton("提示", self.win)
+            top_right_button1.setFixedWidth(60)
+            top_right_button1.clicked.connect(lambda: self.handle_button_click(top_right_button1.text()))
+            top_layout.addWidget(top_right_button1, 0, Qt.AlignTop | Qt.AlignRight)
+            main_layout.addLayout(top_layout)
+
+        # noinspection DuplicatedCode
+        def init_controls_layout():
+            """
+            初始化中间布局。
+
+            创建并添加中间的文本标签，设置字体和对齐方式。
+            """
+            central_widget = QWidget(None)
+            central_layout = QVBoxLayout(central_widget)
+            central_layout.setContentsMargins(0, 0, 0, 0)
+            central_layout.setSpacing(0)
+            central_layout.setStretchFactor(central_widget, 9)
+
+            self.label_1 = QLabel("----------", central_widget)
+            font_1 = QFont()
+            font_1.setPointSize(33)
+            self.label_1.setFont(font_1)
+            self.label_1.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+            self.label_1.setWordWrap(True)
+            central_layout.addWidget(self.label_1)
+
+            self.label_2 = QLabel("----------", central_widget)
+            font_2 = QFont()
+            font_2.setPointSize(33)
+            self.label_2.setFont(font_2)
+            self.label_2.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+            self.label_2.setWordWrap(True)
+            central_layout.addWidget(self.label_2)
+            central_layout.setSpacing(70)
+
+            main_layout.addWidget(central_widget)
+
+        def init_bottom_layout():
+            """
+            初始化底部布局。
+
+            创建并添加底部的保存和斩杀按钮。
+            """
+            bottom_layout = QHBoxLayout()
+
+            bottom_left_button = QPushButton("保存", self.win)
+            bottom_left_button.setFixedWidth(60)
+            bottom_left_button.clicked.connect(lambda: self.handle_button_click(bottom_left_button.text()))
+            bottom_layout.addWidget(bottom_left_button, 0, Qt.AlignBottom | Qt.AlignLeft)
+
+            bottom_right_button = QPushButton("斩杀", self.win)
+            bottom_right_button.setFixedWidth(60)
+            bottom_right_button.clicked.connect(lambda: self.handle_button_click(bottom_right_button.text()))
+            bottom_layout.addWidget(bottom_right_button, 0, Qt.AlignBottom | Qt.AlignRight)
+
+            main_layout.addLayout(bottom_layout)
+
+        init_top_layout()
+        init_controls_layout()
+        init_bottom_layout()
+
+        main_widget = QWidget(None)
+        main_layout.setSpacing(0)
+        main_widget.setLayout(main_layout)
+        self.win.setCentralWidget(main_widget)
