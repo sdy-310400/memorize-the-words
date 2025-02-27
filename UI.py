@@ -248,7 +248,8 @@ class InitUI:
             action_record_2.triggered.connect(
                 lambda: self.father.handle_record_menu_action_click(record.RecordType.FullyMastered))
             action_record_3 = QAction("记录本", self.father.win)
-            action_record_3.triggered.connect(lambda: self.father.handle_record_menu_action_click(record.RecordType.Logbook))
+            action_record_3.triggered.connect(
+                lambda: self.father.handle_record_menu_action_click(record.RecordType.Logbook))
             action_record_4 = QAction("添加今日单词", self.father.win)
             action_record_4.triggered.connect(lambda: self.father.handle_menu_click(action_record_4.text()))
             record_menu.addAction(action_record_1)
@@ -425,7 +426,7 @@ class InitUI:
 # noinspection PyUnresolvedReferences
 class StudyRun:
     def __init__(self, father, study_mode, data_source_type, word_mode,
-                 sp: main.DailyTasks.DailyTasksData = None):
+                 sp: main.DailyTasks.DailyTasksData = main.DailyTasks.DailyTasksData(None, None)):
         self.father = father
 
         self.study_mode = study_mode
@@ -433,7 +434,7 @@ class StudyRun:
         self.data_source_type = data_source_type
         self.daily_tasks = sp
 
-        self.using_word_length = None
+        self.now_using_word_length = None
         self.word_index = None
         self.running = None
         self.run()
@@ -446,10 +447,10 @@ class StudyRun:
         功能：更新显示内容并检查边界条件
         """
         if boolean_value:
-            if self.running.index < self.using_word_length * 2 - 1:
+            if self.running.index < self.now_using_word_length * 2 - 1:
                 self.running.index += 1
             else:
-                print(f"当前值已经是 {self.using_word_length * 2 - 1}，不能再增加了。")
+                print(f"当前值已经是 {self.now_using_word_length * 2 - 1}，不能再增加了。")
                 self.father.top_right_button.setText("结束")
         else:
             if self.running.index > 0:
@@ -507,17 +508,19 @@ class StudyRun:
                 self.father.label_2.setText(text_2)
 
             if self.father.action_pronunciation.isChecked():
-                if self.father.daily_tasks != main.DailyTasks.study:
-                    self.father.memorize_word.sing(self.now_word, file_path=path.today_mp3)
-                elif self.father.daily_tasks != main.DailyTasks.review:
-                    self.father.memorize_word.sing(selfnow_word, file_path=path.yesterday_mp3)
+                if self.daily_tasks.daily_name is not None:
+                    if self.daily_tasks.daily_name == main.DailyTasks.study:
+                        self.father.memorize_word.sing(self.now_word, file_path=path.today_mp3)
+                    elif self.daily_tasks.daily_name == main.DailyTasks.review:
+                        self.father.memorize_word.sing(self.now_word, file_path=path.yesterday_mp3)
                 else:
-                    self.father.memorize_word.sing(selfnow_word)
+                    self.father.memorize_word.sing(self.now_word)
 
+        self.now_using_word_length = len(self.running.data)
         update_labels()
 
         self.father.display_label.setText("%d/%d %s 数据:%s 模式:%s"
-                                          % (self.word_index + 1, self.using_word_length,
+                                          % (self.word_index + 1, self.now_using_word_length,
                                              self.study_mode,
                                              self.data_source_type,
                                              self.word_mode))
@@ -579,10 +582,10 @@ class StudyRun:
         1. 设置界面按钮状态
         2. 绑定键盘热键
         """
-        if self.daily_tasks is None:
-            self.using_word_length = int(self.father.input_edit.text())
+        if self.daily_tasks.daily_name is None:
+            self.now_using_word_length = int(self.father.input_edit.text())
         else:
-            self.using_word_length = self.daily_tasks.length
+            self.now_using_word_length = self.daily_tasks.length
 
         if self.father.top_right_button.text() == "重置":
             self.reset_data()
@@ -605,9 +608,9 @@ class StudyRun:
         """
         print(self.study_mode, self.data_source_type, self.word_mode)
 
-        self.running = main.Main(self.word_mode, self.using_word_length, self.data_source_type, self.study_mode, sp)
+        self.running = main.Main(self.word_mode, self.now_using_word_length, self.data_source_type, self.study_mode, sp)
 
-        self.using_word_length = len(self.running.data)
+        self.now_using_word_length = len(self.running.data)
         if self.daily_tasks != main.DailyTasks.study:
             if self.daily_tasks != main.DailyTasks.review:
                 self.father.down_load_mp3(self.running.data)
@@ -823,6 +826,8 @@ class UI:
             case "每日任务":
                 daily_tasks = main.DailyTasks.DailyTasksData(main.DailyTasks.study, 15)
                 self.run(daily_tasks)
+                """daily_tasks = main.DailyTasks.DailyTasksData(main.DailyTasks.review, 15)
+                self.run(daily_tasks)"""
                 print("任务一结束")
             case "加练5个":
                 daily_tasks = main.DailyTasks.DailyTasksData(main.DailyTasks.review, 5)
@@ -903,42 +908,34 @@ class UI:
             case "保存":
                 if self.running_manage is not None:
                     self.recorder.add(record.RecordType.Logbook, datetime.date.today(),
-                                      self.running_manage.word_manager[self.running_manage.word_index])
+                                      self.running_manage.running.data[self.running_manage.word_index])
             case "斩杀":
-                if self.running_manage is not None:
-                    self.recorder.add(record.RecordType.FullyMastered, datetime.date.today(),
-                                      self.running_manage.word_manager[self.running_manage.word_index])
-                    self.running_manage.word_manager.pop(self.running_manage.word_index)
-                    self.running_manage.random_table_0_and_1.pop(self.running_manage.word_index)
-                    if self.running_manage.word_index == int(self.input_edit.text()) - 1:
-                        self.running_manage.word_index -= 1
-                    self.running_manage.using_word_length -= 1
-                    self.running_manage.index -= 2
-                    self.print_text()
+                # 获取当前单词在数据列表中的实际索引
+                word_index = self.running_manage.running.index // 2
+                # 记录到已掌握
+                self.recorder.add(record.RecordType.FullyMastered, datetime.date.today(),
+                                  self.running_manage.running.data[word_index])
+                # 移除对应的单词数据和随机表条目
+                self.running_manage.running.data.pop(word_index)
+                self.running_manage.running.random_table_0_and_1.pop(word_index)
+                # 调整当前索引，防止越界
+                max_index = len(self.running_manage.running.data) * 2 - 1
+                self.running_manage.running.index = min(self.running_manage.running.index, max_index)
+
+                # 刷新显示
+                self.running_manage.print_text()
 
             case "结束":
                 reply = QMessageBox.question(self.win, '确认退出', '你确定要退出吗？',
                                              QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
                 if reply == QMessageBox.Yes:
                     print("确认")
-
-                    if self.running_manage.daily_tasks.daily_name == main.DailyTasks.study:
-                        self.running_manage.reset_data()
-                        self.running_manage.daily_tasks = main.DailyTasks.DailyTasksData(main.DailyTasks.review,
-                                                                                         self.running_manage.
-                                                                                         daily_tasks.length)
-                        try:
-                            self.running_manage.run()
-                        except EOFError:
-                            self.label_1.setText("昨日没有数据")
-                            self.label_2.setText("")
-                        return False
                     return True
                 else:
                     print("取消")
                     return False
 
-    def run(self, sp=None):
+    def run(self, sp=main.DailyTasks.DailyTasksData(None, None)):
         """
         启动学习流程
 
